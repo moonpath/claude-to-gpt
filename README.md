@@ -10,7 +10,7 @@ sudo docker build -t claude-to-gpt:latest -f Dockerfile .
 
 ## Run Docker Container
 ```shell
-sudo docker run --rm -it -p 8080:80 \
+sudo docker run -itd -p 8080:80 \
 -e AWS_ACCESS_KEY_ID='your-aws-access_key_id' \
 -e AWS_SECRET_ACCESS_KEY='your-aws_secret_access_key' \
 -e REGION_NAME='us-east-1' \

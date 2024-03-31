@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 '''
-@File    :   claude_adapter.py
-@Time    :   2024/03/05 16:34:01
+@File    :   claude_to_gpt.py
+@Time    :   2024/03/31 22:18:00
 @Author  :   hongyu zhang
 @Version :   1.0
 @Desc    :   None
