@@ -22,7 +22,7 @@ claude-to-gpt:latest
 ```
 
 ## Run in Python Environment
-### Install Python Package
+### Install Python Packages
 ```shell
 git clone https://github.com/moonpath/claude-to-gpt.git
 cd claude-to-gpt
