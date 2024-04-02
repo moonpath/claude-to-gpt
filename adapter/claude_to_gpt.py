@@ -8,6 +8,7 @@
 '''
 import os
 import time
+import argparse
 import json
 import boto3
 import uvicorn
@@ -22,13 +23,20 @@ app = FastAPI()
 def convert_messages_to_prompt(messages):
     system = None
     converted_messages = []
-    for message in messages:
-        role = message["role"]
-        content = message["content"]
-        if role in ["user", "assistant"]:
-            converted_messages.append({"role": role, "content": [{"type": "text", "text": content}]})
-        elif role == "system":
-            system = content
+    expect = "user"
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i]["role"] == expect == "user" and messages[i]["content"].strip() != "":
+            converted_messages.append({"role": messages[i]["role"], "content": messages[i]["content"]})
+            expect = "assistant"
+        elif messages[i]["role"] == expect == "assistant" and messages[i]["content"].strip() != "" and \
+            i - 1 >= 0 and messages[i - 1]["role"] == "user" and messages[i - 1]["content"].strip() != "":
+            converted_messages.append({"role": messages[i]["role"], "content": messages[i]["content"]})
+            expect = "user"
+        elif messages[i]["role"] == "system":
+            system = messages[i]["content"]
+        else:
+            continue
+    converted_messages = converted_messages[::-1]
     return converted_messages, system
 
 
@@ -73,29 +81,32 @@ def claude_to_openai_params(response):
         if key not in known_params:
             openai_params[key] = claude_params[key]
 
-    openai_params["choices"] = [{
-        "message": {"role": "assistant", "content": claude_params["content"][0]["text"]},
-        "finish_reason": claude_params["stop_reason"],
-        "index": 0,
-        "content_filter_results": {
-            "hate": {
-                "filtered": False,
-                "severity": "safe"
-            },
-            "self_harm": {
-                "filtered": False,
-                "severity": "safe"
-            },
-            "sexual": {
-                "filtered": False,
-                "severity": "safe"
-            },
-            "violence": {
-                "filtered": False,
-                "severity": "safe"
+    openai_params["choices"] = []
+    for content in claude_params["content"]:
+        choice = {
+            "message": {"role": "assistant", "content": content["text"]},
+            "finish_reason": claude_params["stop_reason"],
+            "index": 0,
+            "content_filter_results": {
+                "hate": {
+                    "filtered": False,
+                    "severity": "safe"
+                },
+                "self_harm": {
+                    "filtered": False,
+                    "severity": "safe"
+                },
+                "sexual": {
+                    "filtered": False,
+                    "severity": "safe"
+                },
+                "violence": {
+                    "filtered": False,
+                    "severity": "safe"
+                }
             }
         }
-    }]
+        openai_params["choices"].append(choice)
 
     openai_params["usage"] = {"prompt_tokens": claude_params["usage"]["input_tokens"],
                                 "completion_tokens": claude_params["usage"]["output_tokens"],
@@ -229,7 +240,7 @@ def claude_to_openai_params_stream(claude_params):
 async def handle_completions(openai_request: Request, authorization: str = Header(None)):
     openai_params = await openai_request.json()
     claude_params = openai_to_claude_params(openai_params)
-    if api_key not in authorization:
+    if args.api_key not in authorization:
         detail = {
             "error": {
                 "message": f"Incorrect API key provided: {authorization}.",
@@ -240,39 +251,37 @@ async def handle_completions(openai_request: Request, authorization: str = Heade
         }
         raise HTTPException(status_code=400, detail=detail)
 
-    try:
-        if claude_params.get("stream", False):
-            raw_response = bedrock.invoke_model_with_response_stream(modelId=claude_params["model"], body=claude_params["body"])
-            status_code=raw_response["ResponseMetadata"]["HTTPStatusCode"]
-            response_body = claude_to_openai_params_stream(raw_response)
-            return StreamingResponse(content=response_body, status_code=status_code)
-        else:
-            raw_response = bedrock.invoke_model(modelId=claude_params["model"], body=claude_params["body"])
-            status_code=raw_response["ResponseMetadata"]["HTTPStatusCode"]
-            response_body = claude_to_openai_params(raw_response)
-            return Response(content=json.dumps(response_body, ensure_ascii=False), status_code=status_code)
-    except Exception as e:
-        detail = {
-            "error": {
-                "message": str(e),
-                "type": "internal_server_error",
-                "param": None,
-                "code": str(e.__class__)
-            }
-        }
-        raise HTTPException(status_code=500, detail=detail)
+    if claude_params.get("stream", False):
+        raw_response = bedrock.invoke_model_with_response_stream(modelId=claude_params["model"], body=claude_params["body"])
+        status_code=raw_response["ResponseMetadata"]["HTTPStatusCode"]
+        response_body = claude_to_openai_params_stream(raw_response)
+        return StreamingResponse(content=response_body, status_code=status_code)
+    else:
+        raw_response = bedrock.invoke_model(modelId=claude_params["model"], body=claude_params["body"])
+        status_code = raw_response["ResponseMetadata"]["HTTPStatusCode"]
+        response_body = claude_to_openai_params(raw_response)
+        return Response(content=json.dumps(response_body, ensure_ascii=False), status_code=status_code)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--aws_access_key_id", type=str, default=os.getenv("AWS_ACCESS_KEY_ID"))
+    parser.add_argument("--aws_secret_access_key", type=str, default=os.getenv("AWS_SECRET_ACCESS_KEY"))
+    parser.add_argument("--region_name", type=str, default=os.getenv("REGION_NAME", "us-east-1"))
+    parser.add_argument("--api_key", type=str, default=os.getenv("API_KEY", ""))
+    parser.add_argument("--host", type=str, default=os.getenv("HOST", "0.0.0.0"))
+    parser.add_argument("--port", type=int, default=os.getenv("PORT", 80))
+
+    args = parser.parse_args()
+
     bedrock = boto3.client(service_name='bedrock-runtime',
-                            aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-                            aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
-                            region_name=os.environ['REGION_NAME'],
+                            aws_access_key_id=args.aws_access_key_id,
+                            aws_secret_access_key=args.aws_secret_access_key,
+                            region_name=args.region_name,
                             )
     
-    api_key = os.getenv("API_KEY", "")
-
     uvicorn.run(app,
-                host=os.getenv("HOST", "0.0.0.0"),
-                port=int(os.getenv("PORT", "80")),
+                host=args.host,
+                port=args.port,
                 )
