@@ -37,7 +37,7 @@ python adapter/claude_to_gpt.py \
 --region_name='us-east-1' \
 --host='0.0.0.0' \
 --port=8080 \
---api_key='this-key-can-be-customized' \
+--api_key='this-key-can-be-customized'
 ```
 
 ## Usage Examples
