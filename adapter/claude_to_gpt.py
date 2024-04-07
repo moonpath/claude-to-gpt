@@ -56,7 +56,7 @@ def openai_to_claude_params(openai_params):
     if openai_params.get("max_tokens"):
         claude_params["body"]["max_tokens"] = openai_params["max_tokens"]
     else:
-        claude_params["body"]["max_tokens"] = 1000
+        claude_params["body"]["max_tokens"] = 8192
 
     if openai_params.get("stop"):
         claude_params["body"]["stop_sequences"] = openai_params.get("stop")
